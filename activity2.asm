@@ -6,8 +6,8 @@
 ; Board  : ATmega324PB Xplained Pro - 2505
 ; For    : ECE 3612, Spring 2020
 ;
-; This demo cycles through the ASCII characters [' ','`'[ with a 2
-; second delay for each character.
+; This activity displays the message "SPIG2020" with letters being displayed
+; for 1 s, and numbers for 1/2 s.
 ;
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
@@ -15,6 +15,8 @@
 
 .equ	C_FLAG=0	;carry flag of the status register
 .equ	Z_FLAG=1	; zero flag of the status register
+
+.equ	LETTER_FLAG='@'	;letter flag for characters
 
 ;LoaD Immediate to Word: loads a word value into a word register
 ;@params
@@ -39,6 +41,15 @@
 	brne	@3	;branch if not equal
 .endmacro	;brieqw
 
+;ADD Words: adds a word register to another word register
+;@params
+;  @0:@1 -- the augend word register
+;  @2:@3 -- the addend word register
+.macro	addw
+	add	@1,@2	;add the low byte registers
+	adc	@0,@3	;add the high byte registers
+.endmacro	;addw
+
 
 ;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;
 ; BEGIN PROGRAM
@@ -53,20 +64,21 @@
 
 ;initializes the Z pointer for the message
 INIT_DISPLAY:
-	
-	ldiw	ZH,ZL, ASCII_TABLE << 1	;set the Z pointer to
-		;ASCII_TABLE
+	ldiw	ZH,ZL, MESSAGE << 1	;set the Z pointer to MESSAGE
 ;reads, decodes and displays the next character in the MESSAGE,
 ;and correspondingly decides the delay
 DISPLAY_LOOP:
 	lpm	r16,Z+	;read the next bit pattern from program memory
-	brinew	ZH,ZL, END_ASCII_TABLE << 1,	CONT_DISPLAY	;continue
-	;the loop if the Z Pointer has not reached the end of
-	;the ASCII_TABLE
-	rjmp	INIT_DISPLAY	;if it has, initialize Z pointer again
-CONT_DISPLAY:
-	out	PORTA,r16	;write the bit pattern to PORTA
-	ldi	r18,4	;delay = 2/2 s
+	cpi	r16,0	;is the character 0 ?
+	breq	INIT_DISPLAY	;if so, initialize the display again
+	rcall	LOOKUP_PATTERN	;look up the bit pattern for the
+		;character
+	out	PORTA,r1	;write the bit pattern to PORTA
+	;set the delay time
+	ldi	r18,1	;delay = 1/2 s
+	andi	r16,LETTER_FLAG	;is the character is a letter ?
+	breq	DELAY_LOOP	;if not, skip to DELAY_LOOP
+	inc	r18	;if so, increment delay to 2/2s
 ;delays by (r18) [1/2 s]
 DELAY_LOOP:
 	rcall	delay	;perform the delay
@@ -74,6 +86,30 @@ DELAY_LOOP:
 	brne	DELAY_LOOP	;delay again
 	rjmp	DISPLAY_LOOP	;repeat the display loop
 END:
+
+;looks up the pattern for the ASCII character in r16
+;@params
+;  r16 -- the ASCII character to look up in the range [' ','`'[
+;@returns
+;  r1 -- the bit pattern corresponding to (r16)
+LOOKUP_PATTERN:
+	;push the Z pointer onto the stack
+	push	ZL	;push the low byte
+	push	ZH	;push the high byte
+	push	r17	;push R17
+	ldiw	ZH,ZL, ASCII_TABLE << 1	;set the Z pointer to
+		;ASCII_TABLE
+	ldi	r17,0	;treat r17 as high byte in the addition
+	addw	ZH,ZL,r16,r17	;add the value of the character to the
+		;Z pointer
+	sbiw	ZL,' '	;subtract the value of a space
+		; character from the Z pointer
+	lpm	r1,Z	;read the bit pattern from program memory
+	;pop into the Z pointer
+	pop	r17	;pop back into R17
+	pop	ZH	;pop back the high byte
+	pop	ZL	;pop back the low byte
+	ret	;from LOOKUP_PATTERN
 
 ;delays by 1/2 [s]
 ;@returns
@@ -118,3 +154,7 @@ ASCII_TABLE:
 ;         X\Xi,        Yy,         Z          [,        \*,         ],         ^,         _
 .db 0b01001001,0b01101110,0b01011011,0b00111001,0b01100100,0b00001111,0b00100011,0b00001000
 END_ASCII_TABLE:
+
+;the message to display
+MESSAGE:
+.db "SPIG2020",0,0
